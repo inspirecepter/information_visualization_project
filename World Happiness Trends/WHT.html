@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World Happiness Trends</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f7f9fc;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #3366cc;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+
+        .top-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        select,
+        button {
+            padding: 10px 15px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background-color: #3366cc;
+            color: #fff;
+        }
+
+        .country-wrapper {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            gap: 5px;
+            width: 100%;
+        }
+
+        .country-wrapper select,
+        .country-wrapper button {
+            flex: 1;
+        }
+
+        #chart {
+            display: flex;
+            justify-content: center;
+        }
+
+        svg {
+            border: 1px solid #ddd;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        .line {
+            fill: none;
+            stroke-width: 2px;
+        }
+
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 10px;
+            font: 14px sans-serif;
+            background: black;
+            color: white;
+            border: 0;
+            border-radius: 8px;
+            pointer-events: none;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .country-label {
+            font: 12px sans-serif;
+        }
+
+        .hover-line {
+            stroke: #aaa;
+            stroke-width: 1px;
+            opacity: 0;
+        }
+
+        .dot {
+            stroke: #fff;
+            stroke-width: 1.5px;
+        }
+    </style>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+</head>
+
+<body>
+    <h1>World Happiness Trends</h1>
+    <div class="controls">
+        <div class="top-controls">
+            <select id="indicatorSelect">
+                <option value="happiness_score">Happiness Score</option>
+                <option value="gdp_per_capita">GDP per Capita</option>
+                <option value="social_support">Social Support</option>
+                <option value="healthy_life_expectancy">Healthy Life Expectancy</option>
+                <option value="freedom_to_make_life_choices">Freedom to Make Life Choices</option>
+                <option value="generosity">Generosity</option>
+                <option value="perceptions_of_corruption">Perceptions of Corruption</option>
+                <option value="happiness_rank">Happiness Rank</option>
+            </select>
+            <button id="addCountryBtn">Add Country</button>
+            <button id="clearPlotBtn">Clear Plot</button>
+        </div>
+        <div id="countryFilters"></div>
+    </div>
+    <div id="chart"></div>
+    <script>
+        const margin = { top: 20, right: 80, bottom: 30, left: 50 },
+            width = 1500 - margin.left - margin.right,
+            height = 800 - margin.top - margin.bottom;
+
+        const svg = d3.select("#chart").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const parseYear = d3.timeParse("%Y");
+
+        d3.csv("./../WHR_with_ranks.csv").then(data => {
+            data.forEach(d => {
+                d.year = parseYear(d.year);
+                d.happiness_score = +d.happiness_score;
+                d.gdp_per_capita = +d.gdp_per_capita;
+                d.social_support = +d.social_support;
+                d.healthy_life_expectancy = +d.healthy_life_expectancy;
+                d.freedom_to_make_life_choices = +d.freedom_to_make_life_choices;
+                d.generosity = +d.generosity;
+                d.perceptions_of_corruption = +d.perceptions_of_corruption;
+            });
+
+            const countries = [...new Set(data.map(d => d.country))].sort();
+            const colorScale = d3.scaleOrdinal(d3.schemeTableau10).domain(countries);
+            const xScale = d3.scaleTime().range([0, width]);
+            const yScale = d3.scaleLinear().range([height, 0]);
+
+            xScale.domain(d3.extent(data, d => d.year));
+
+            svg.append("g")
+                .attr("class", "x-axis")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(xScale));
+
+            svg.append("g")
+                .attr("class", "y-axis")
+                .call(d3.axisLeft(yScale));
+
+            const lineGenerator = d3.line()
+                .x(d => xScale(d.year))
+                .y(d => yScale(d.happiness_score));
+
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            const controls = d3.select("#countryFilters");
+            let selectedCountries = [];
+            let selectedIndicator = "happiness_score";
+
+            function updateCountrySelectors() {
+                controls.selectAll(".country-select").each(function () {
+                    const select = d3.select(this);
+                    const currentValue = select.property("value");
+
+                    select.selectAll("option").remove();
+
+                    select.append("option")
+                        .attr("value", "")
+                        .text("Select a country");
+
+                    countries.forEach(country => {
+                        if (!selectedCountries.includes(country) || country === currentValue) {
+                            select.append("option")
+                                .attr("value", country)
+                                .text(country)
+                                .attr("selected", country === currentValue ? "selected" : null);
+                        }
+                    });
+                });
+            }
+
+            function addCountrySelector(isInitial = false) {
+                const countryWrapper = controls.append("div").attr("class", "country-wrapper");
+
+                const countrySelect = countryWrapper.append("select")
+                    .attr("class", "country-select")
+                    .on("change", function () {
+                        const selectedCountry = d3.select(this).property("value");
+                        const previousCountry = countrySelect.attr("data-previous");
+                        countrySelect.attr("data-previous", selectedCountry);
+
+                        if (selectedCountry) {
+                            selectedCountries = selectedCountries.filter(c => c !== previousCountry);
+                            if (!selectedCountries.includes(selectedCountry)) {
+                                selectedCountries.push(selectedCountry);
+                            }
+                            updateCountrySelectors();
+                            updateChart();
+                        }
+                    });
+
+                if (!isInitial) {
+                    countryWrapper.append("button")
+                        .text("Remove")
+                        .on("click", function () {
+                            const selectedCountry = countrySelect.property("value");
+                            selectedCountries = selectedCountries.filter(c => c !== selectedCountry);
+                            countryWrapper.remove();
+                            updateCountrySelectors();
+                            updateChart();
+                        });
+                }
+                updateCountrySelectors();
+            }
+
+            function updateChart() {
+                svg.selectAll(".line").remove();
+                svg.selectAll(".dot").remove();
+                svg.selectAll(".country-label").remove();
+
+                if (selectedCountries.length === 0) {
+                    return;
+                }
+
+                const selectedData = data.filter(d => selectedCountries.includes(d.country));
+                const maxYear = d3.max(selectedData, d => d.year);
+                const minYear = d3.min(selectedData, d => d.year);
+                const yMin = d3.min(selectedData, d => d[selectedIndicator]);
+                const yMax = d3.max(selectedData, d => d[selectedIndicator]);
+                const yDiff = Math.abs(yMax - yMin) / 2;
+
+                xScale.domain([minYear, maxYear]);
+                yScale.domain([yMin - yDiff, yMax + yDiff]);
+
+                svg.select(".x-axis").transition().duration(1000).call(d3.axisBottom(xScale));
+                svg.select(".y-axis").transition().duration(1000).call(d3.axisLeft(yScale));
+
+                const line = d3.line()
+                    .x(d => xScale(d.year))
+                    .y(d => yScale(d[selectedIndicator]));
+
+                selectedCountries.forEach(country => {
+                    const countryData = data.filter(d => d.country === country);
+                    const lastEntry = countryData[countryData.length - 1];
+
+                    svg.append("path")
+                        .datum(countryData)
+                        .attr("class", `line line-${country}`)
+                        .attr("d", line)
+                        .style("stroke", colorScale(country))
+                        .on("mouseover", function (event, d) {
+                            const year = xScale.invert(d3.pointer(event)[0]);
+                            const yearData = countryData.find(entry => entry.year === year);
+
+                            if (yearData) {
+                                tooltip.transition()
+                                    .duration(200)
+                                    .style("opacity", .9);
+                                tooltip.html(`<strong>${yearData.country} (${yearData.year.getFullYear()})</strong><br>${selectedIndicator.replace(/_/g, ' ')}: ${yearData[selectedIndicator]}`)
+                                    .style("left", (event.pageX + 5) + "px")
+                                    .style("top", (event.pageY - 28) + "px");
+                            } else {
+                                tooltip.transition()
+                                    .duration(500)
+                                    .style("opacity", 0);
+                            }
+                        })
+                        .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+
+                    svg.append("text")
+                        .attr("class", `country-label label-${country}`)
+                        .attr("transform", `translate(${xScale(lastEntry.year)},${yScale(lastEntry[selectedIndicator])})`)
+                        .attr("x", 5)
+                        .attr("dy", ".35em")
+                        .style("fill", colorScale(country))
+                        .text(country);
+
+                    svg.selectAll(`.dot-${country}`)
+                        .data(countryData)
+                        .enter().append("circle")
+                        .attr("class", `dot dot-${country}`)
+                        .attr("cx", d => xScale(d.year))
+                        .attr("cy", d => yScale(d[selectedIndicator]))
+                        .attr("r", 3)
+                        .style("fill", colorScale(country))
+                        .on("mouseover", function (event, d) {
+                            tooltip.transition()
+                                .duration(200)
+                                .style("opacity", .9);
+                            tooltip.html(`<strong>${d.country} (${d.year.getFullYear()})</strong><br>${selectedIndicator.replace(/_/g, ' ')}: ${d[selectedIndicator]}`)
+                                .style("left", (event.pageX + 5) + "px")
+                                .style("top", (event.pageY - 28) + "px");
+                        })
+                        .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+                });
+
+                svg.selectAll(".hover-line").remove();
+                const hoverLine = svg.append("line")
+                    .attr("class", "hover-line")
+                    .style("stroke", "#aaa")
+                    .style("stroke-width", 1)
+                    .style("opacity", 0);
+
+                svg.selectAll(".overlay").remove();
+                const overlay = svg.append("rect")
+                    .attr("class", "overlay")
+                    .attr("width", width)
+                    .attr("height", height)
+                    .style("fill", "none")
+                    .style("pointer-events", "all")
+                    .on("mouseover", () => { hoverLine.style("opacity", 1); tooltip.style("opacity", 1); })
+                    .on("mouseout", () => { hoverLine.style("opacity", 0); tooltip.style("opacity", 0); })
+                    .on("mousemove", function (event) {
+                        const mouseX = d3.pointer(event, this)[0];
+                        const year = xScale.invert(mouseX);
+
+                        const yearDataArray = selectedCountries.map(country => {
+                            const countryData = data.filter(d => d.country === country);
+                            const bisectYear = d3.bisector(d => d.year).left;
+                            const index = bisectYear(countryData, year, 1);
+                            const a = countryData[index - 1];
+                            const b = countryData[index];
+                            if (!b) return a;
+                            return (year - a.year > b.year - year) ? b : a;
+                        }).filter(d => d);
+
+                        const validYearDataArray = yearDataArray.filter(d => d && d[selectedIndicator] !== undefined);
+                        if (validYearDataArray.length === 0) {
+                            tooltip.transition().duration(500).style("opacity", 0);
+                            return;
+                        }
+
+                        const closestData = validYearDataArray[0];
+                        const closestYear = closestData.year;
+                        const exactX = xScale(closestYear);
+                        hoverLine.attr("x1", exactX)
+                            .attr("x2", exactX)
+                            .attr("y1", 0)
+                            .attr("y2", height);
+
+                        validYearDataArray.sort((a, b) => b[selectedIndicator] - a[selectedIndicator]);
+
+                        if (validYearDataArray.length > 0) {
+                            const tooltipContent = validYearDataArray.map(d => `<strong style="color:${colorScale(d.country)}">${d.country} (${d.year.getFullYear()})</strong><br>
+                        ${selectedIndicator.replace(/_/g, ' ')}: ${d[selectedIndicator]}
+                    `).join("<br><br>");
+
+                            tooltip.html(tooltipContent)
+                                .style("left", (event.pageX + 5) + "px")
+                                .style("top", (event.pageY - 28) + "px");
+                        }
+                    });
+            }
+
+            addCountrySelector(true);
+
+            d3.select("#clearPlotBtn").on("click", () => {
+                selectedCountries = [];
+                svg.selectAll(".line").remove();
+                svg.selectAll(".dot").remove();
+                svg.selectAll(".country-label").remove();
+                updateChart();
+                controls.selectAll(".country-wrapper").remove();
+                addCountrySelector(true);
+            });
+
+            d3.select("#addCountryBtn").on("click", () => {
+                addCountrySelector();
+            });
+
+            d3.select("#indicatorSelect").on("change", function () {
+                selectedIndicator = d3.select(this).property("value");
+                updateChart();
+            });
+        });
+    </script>
+</body>
+
+</html>

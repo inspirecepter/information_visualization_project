@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>World Happiness Dashboard</title>
+    <style>
+        body {
+            display: flex;
+            font-family: Arial, sans-serif;
+            margin: 0;
+        }
+        .menu {
+            width: 200px;
+            background-color: #f7f7f7;
+            border-right: 1px solid #ddd;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .menu a {
+            display: block;
+            padding: 10px;
+            margin-bottom: 10px;
+            color: #333;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+        .menu a:hover,
+        .menu a.active {
+            background-color: #3366cc;
+            color: #fff;
+        }
+        .content {
+            flex-grow: 1;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .content iframe {
+            width: 100%;
+            height: calc(100vh - 60px);
+            border: none;
+        }
+        .title {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #3366cc;
+            margin: 0;
+            padding: 20px;
+            background-color: #f7f7f7;
+            border-bottom: 1px solid #ddd;
+            width: 100%;
+            box-sizing: border-box;
+        }
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const links = document.querySelectorAll('.menu a');
+            const iframe = document.querySelector('iframe');
+
+            function setActiveLink(link) {
+                links.forEach(a => a.classList.remove('active'));
+                link.classList.add('active');
+            }
+
+            links.forEach(link => {
+                link.addEventListener('click', function () {
+                    setActiveLink(link);
+                });
+            });
+
+            const initialLink = document.querySelector('.menu a[href="/World Happiness Map/WHM.html"]');
+            setActiveLink(initialLink);
+            iframe.src = initialLink.getAttribute('href');
+        });
+    </script>
+</head>
+<body>
+    <div class="menu">
+        <h1 class="title">World Happiness Dashboard</h1>
+        <a href="/World Happiness Map/WHM.html" target="contentFrame">World Happiness Score Map</a>
+        <a href="/World Happiness Trends/WHT.html" target="contentFrame">World Happiness Trends</a>
+        <a href="/World Happiness Correlation/WHC.html" target="contentFrame">World Happiness Correlation</a>
+    </div>
+    <div class="content">
+        <iframe name="contentFrame"></iframe>
+    </div>
+</body>
+</html>

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World Happiness Score Map</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f7f9fc;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #3366cc;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+
+        .controls .top-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 15px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover,
+        button.active {
+            background-color: #3366cc;
+            color: #fff;
+        }
+
+        button:focus {
+            outline: 2px solid #ffcc00;
+            outline-offset: 2px;
+        }
+
+        button.animated {
+            animation: highlight 0.5s ease-in-out;
+        }
+
+        @keyframes highlight {
+            from {
+                background-color: #fff;
+                color: #333;
+            }
+
+            to {
+                background-color: #ffcc00;
+                color: #fff;
+            }
+        }
+
+        .year-button {
+            margin: 2px;
+        }
+
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 10px;
+            font: 14px sans-serif;
+            background: black;
+            color: white;
+            border: 0;
+            border-radius: 8px;
+            pointer-events: none;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        #map {
+            display: flex;
+            justify-content: center;
+        }
+
+        svg {
+            border: 1px solid #ddd;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        #legend {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 20px;
+            flex-direction: column;
+            font-size: 12px;
+        }
+
+        #gradient {
+            height: 20px;
+            width: 300px;
+            border: 1px solid #ddd;
+            background: linear-gradient(to right, red, yellow, green);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 10px;
+        }
+
+        #min-label,
+        #max-label {
+            font-size: 14px;
+            position: absolute;
+        }
+
+        #min-label {
+            left: 0;
+            transform: translateX(-100%);
+        }
+
+        #max-label {
+            right: 0;
+            transform: translateX(100%);
+        }
+    </style>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+</head>
+
+<body>
+    <h1>World Happiness Score Map</h1>
+    <div id="map"></div>
+    <div id="legend">
+        <div id="gradient">
+            <span id="min-label">😢</span>
+            <span id="max-label">😊</span>
+        </div>
+    </div>
+    <div class="controls">
+        <div id="yearButtons"></div>
+        <button id="toggleAnimation" class="toggle-button">Start Animation</button>
+    </div>
+    <script>
+        const width = 1280;
+        const height = 800;
+
+        const projection = d3.geoNaturalEarth1()
+            .scale(200)
+            .translate([width / 2, height / 2]);
+
+        const path = d3.geoPath().projection(projection);
+
+        const svg = d3.select("#map").append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        const tooltip = d3.select("body").append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+        const zoom = d3.zoom()
+            .scaleExtent([1, 8])
+            .on("zoom", zoomed);
+
+        svg.call(zoom);
+
+        function zoomed(event) {
+            svg.selectAll("path")
+                .attr("transform", event.transform);
+        }
+
+        const countryNameMapping = {
+            "United States": "USA",
+            "The Bahamas": "Bahamas",
+            "Congo (Kinshasa)": "Democratic Republic of the Congo",
+            "Congo (Brazzaville)": "Republic of the Congo",
+            "North Macedonia": "Macedonia",
+            "East Timor": "Timor-Leste",
+            "Taiwan": "Taiwan Province of China",
+            "West Bank": "Palestinian Territories",
+            "North Cyprus": "Northern Cyprus",
+            "United Kingdom": "England",
+            "Somaliland Region": "Somaliland",
+            "Serbia": "Republic of Serbia",
+            "Taiwan Province of China": "Taiwan",
+            "Tanzania": "United Republic of Tanzania"
+        };
+
+        let happinessData;
+        let topo;
+        let animationInterval;
+        let isAnimating = false;
+
+        Promise.all([
+            d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson"),
+            d3.csv("/WHR_with_ranks.csv")
+        ]).then(data => {
+            topo = data[0];
+            happinessData = data[1];
+
+            const years = [...new Set(happinessData.map(d => d.year))].sort();
+            const yearButtonsDiv = d3.select("#yearButtons");
+
+            years.forEach(year => {
+                yearButtonsDiv.append("button")
+                    .attr("class", "year-button")
+                    .attr("id", `year-${year}`)
+                    .text(year)
+                    .on("click", function () {
+                        updateMap(year);
+                        updateActiveYearButton(year);
+                        stopAnimation();
+                    });
+            });
+
+            const initialYear = years[0];
+            updateMap(initialYear);
+            updateActiveYearButton(initialYear);
+
+            d3.select("#toggleAnimation").on("click", () => {
+                isAnimating = !isAnimating;
+                if (isAnimating) {
+                    startAnimation(years);
+                    d3.select("#toggleAnimation").text("Stop Animation").classed("active", true);
+                } else {
+                    stopAnimation();
+                    d3.select("#toggleAnimation").text("Start Animation").classed("active", false);
+                }
+            });
+        });
+
+        function updateMap(year) {
+            const filteredData = happinessData.filter(d => d.year == year);
+            const happinessById = {};
+            const rankById = {};
+
+            filteredData.forEach(d => {
+                const mappedCountry = countryNameMapping[d.country] || d.country;
+                happinessById[mappedCountry] = +d.happiness_score;
+                rankById[mappedCountry] = +d.happiness_rank;
+            });
+            const colorScale = d3.scaleSequential()
+                .domain([d3.min(filteredData, d => +d.happiness_score), d3.max(filteredData, d => +d.happiness_score)])
+                .interpolator(d3.interpolateRdYlGn);
+
+            createLegend(colorScale, filteredData);
+
+            const paths = svg.selectAll("path")
+                .data(topo.features);
+
+            paths.enter().append("path")
+                .merge(paths)
+                .attr("d", path)
+                .attr("fill", d => {
+                    const countryName = d.properties.name;
+                    if (happinessById[countryName] === undefined) {
+                        console.log("No data for country:", countryName);
+                        return "none";
+                    }
+                    const happinessScore = happinessById[countryName];
+                    return colorScale(happinessScore || 0);
+                })
+                .attr("stroke", "black")
+                .attr("stroke-width", 0.5)
+                .on("mouseover", function (event, d) {
+                    const countryName = d.properties.name;
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`${countryName}<br/>Happiness Score: ${happinessById[countryName] || "No data"}<br/>Rank: ${rankById[countryName] || "No data"}`)
+                        .style("left", (event.pageX) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function () {
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+
+            paths.exit().remove();
+        }
+
+        function createLegend(colorScale, data) {
+            const gradient = d3.select("#gradient");
+            const minScore = d3.min(data, d => +d.happiness_score);
+            const maxScore = d3.max(data, d => +d.happiness_score);
+
+            gradient.style("background", `linear-gradient(to right, ${colorScale(minScore)}, ${colorScale(maxScore)})`);
+        }
+
+        function updateActiveYearButton(year) {
+            d3.selectAll(".year-button").classed("active", false);
+            d3.select(`#year-${year}`).classed("active", true);
+        }
+
+        function startAnimation(years) {
+            let yearIndex = 0;
+
+            function updateYear() {
+                const year = years[yearIndex];
+                updateMap(year);
+                updateActiveYearButton(year);
+                focusOnYearButton(year);
+
+                yearIndex = (yearIndex + 1) % years.length;
+            }
+
+            updateYear();
+            animationInterval = setInterval(updateYear, 2000);
+        }
+
+        function focusOnYearButton(year) {
+            const yearButton = d3.select(`#year-${year}`).node();
+            yearButton.focus();
+            yearButton.classList.add('animated');
+            setTimeout(() => {
+                yearButton.classList.remove('animated');
+            }, 500);
+        }
+
+        function stopAnimation() {
+            clearInterval(animationInterval);
+        }
+    </script>
+</body>
+
+</html>

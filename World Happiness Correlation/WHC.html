@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>World Happiness Correlation</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f7f9fc;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            text-align: center;
+            color: #3366cc;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+
+        select {
+            padding: 10px 15px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        select:hover {
+            background-color: #3366cc;
+            color: #fff;
+        }
+
+        .dropdown {
+            margin: 20px;
+            text-align: center;
+        }
+
+        .axis text {
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .axis path,
+        .axis line {
+            display: none;
+        }
+
+        .cell {
+            stroke: #fff;
+        }
+
+        #plot-container {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            gap: 40px;
+        }
+
+        svg {
+            border: 1px solid #ddd;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>World Happiness Correlation</h1>
+    <div class="controls">
+        <div class="dropdown">
+            <label for="countrySelect1">Select Country 1: </label>
+            <select id="countrySelect1"></select>
+        </div>
+        <div class="dropdown">
+            <label for="countrySelect2">Select Country 2: </label>
+            <select id="countrySelect2"></select>
+        </div>
+    </div>
+    <div id="plot-container">
+        <div id="plot1"></div>
+        <div id="plot2"></div>
+    </div>
+    <script>
+        d3.csv("/WHR_with_ranks.csv").then(function (data) {
+            let countries = Array.from(new Set(data.map(d => d.country))).sort();
+            let countrySelect1 = d3.select("#countrySelect1");
+            let countrySelect2 = d3.select("#countrySelect2");
+
+            countrySelect1.selectAll("option")
+                .data(countries)
+                .enter()
+                .append("option")
+                .text(d => d)
+                .attr("value", d => d);
+
+            countrySelect2.selectAll("option")
+                .data(countries)
+                .enter()
+                .append("option")
+                .text(d => d)
+                .attr("value", d => d);
+
+            const factors = [
+                "happiness_score", "gdp_per_capita", "social_support",
+                "healthy_life_expectancy", "freedom_to_make_life_choices",
+                "generosity", "perceptions_of_corruption"
+            ];
+            const factorLabels = [
+                "Happiness Score", "GDP per Capita", "Social Support",
+                "Healthy Life Expectancy", "Freedom to Make Life Choices",
+                "Generosity", "Perceptions of Corruption"
+            ];
+
+            function calculateCorrelation(x, y) {
+                let n = x.length;
+                let meanX = d3.mean(x);
+                let meanY = d3.mean(y);
+                let numerator = d3.sum(x.map((xi, i) => (xi - meanX) * (y[i] - meanY)));
+                let denominator = Math.sqrt(d3.sum(x.map(xi => (xi - meanX) ** 2)) * d3.sum(y.map(yi => (yi - meanY) ** 2)));
+                return numerator / denominator;
+            }
+
+            function createHeatmap(selectedCountry, plotId) {
+                d3.select(`#${plotId} svg`).remove();
+
+                let countryData = data.filter(d => d.country === selectedCountry);
+                let correlationMatrix = [];
+
+                factors.forEach((factorX, i) => {
+                    let row = [];
+                    factors.forEach((factorY, j) => {
+                        if (i === j) {
+                            row.push(1);
+                        } else if (i < j) {
+                            let x = countryData.map(d => +d[factorX]);
+                            let y = countryData.map(d => +d[factorY]);
+                            row.push(calculateCorrelation(x, y));
+                        } else {
+                            row.push(correlationMatrix[j][i]);
+                        }
+                    });
+                    correlationMatrix.push(row);
+                });
+
+                let margin = { top: 150, right: 100, bottom: 200, left: 100 },
+                    width = 500,
+                    height = 500;
+
+                let svg = d3.select(`#${plotId}`).append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                let x = d3.scaleBand()
+                    .range([0, width])
+                    .domain(factorLabels)
+                    .padding(0.05);
+
+                let y = d3.scaleBand()
+                    .range([height, 0])
+                    .domain(factorLabels)
+                    .padding(0.05);
+
+                let color = d3.scaleQuantize()
+                    .domain([-1, 1])
+                    .range(["#d73027", "#fc8d59", "#fee08b", "#d9ef8b", "#91cf60", "#1a9850"]);
+
+                svg.append("g")
+                    .attr("class", "axis")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x).tickSize(0))
+                    .selectAll("text")
+                    .style("text-anchor", "middle")
+                    .call(wrapText, x.bandwidth());
+
+                svg.append("g")
+                    .attr("class", "axis")
+                    .call(d3.axisLeft(y).tickSize(0))
+                    .selectAll("text")
+                    .style("text-anchor", "end")
+                    .call(wrapText, y.bandwidth());
+
+                svg.selectAll()
+                    .data(correlationMatrix)
+                    .enter()
+                    .append("g")
+                    .selectAll("rect")
+                    .data((d, i) => d.map((v, j) => ({ value: v, x: i, y: j })))
+                    .enter()
+                    .append("rect")
+                    .attr("x", d => x(factorLabels[d.x]))
+                    .attr("y", d => y(factorLabels[d.y]))
+                    .attr("width", x.bandwidth())
+                    .attr("height", y.bandwidth())
+                    .style("fill", d => color(d.value))
+                    .attr("class", "cell");
+
+                svg.selectAll(".text")
+                    .data(correlationMatrix)
+                    .enter()
+                    .append("g")
+                    .selectAll(".text")
+                    .data((d, i) => d.map((v, j) => ({ value: v, x: i, y: j })))
+                    .enter()
+                    .append("text")
+                    .attr("x", d => x(factorLabels[d.x]) + x.bandwidth() / 2)
+                    .attr("y", d => y(factorLabels[d.y]) + y.bandwidth() / 2)
+                    .attr("dy", ".35em")
+                    .attr("text-anchor", "middle")
+                    .text(d => d.value.toFixed(2))
+                    .style("fill", "black")
+                    .style("font-size", "10px");
+
+                let legendHeight = height;
+                let legendWidth = 20;
+
+                let legendSvg = svg.append("g")
+                    .attr("class", "legend")
+                    .attr("transform", `translate(${width + 20}, 0)`);
+
+                let legendScale = d3.scaleLinear()
+                    .range([legendHeight, 0])
+                    .domain([-1, 1]);
+
+                let legendAxis = d3.axisRight(legendScale)
+                    .ticks(5);
+
+                let legend = legendSvg.append("defs")
+                    .append("svg:linearGradient")
+                    .attr("id", `gradient-${plotId}`)
+                    .attr("x1", "0%")
+                    .attr("y1", "100%")
+                    .attr("x2", "0%")
+                    .attr("y2", "0%")
+                    .attr("spreadMethod", "pad");
+
+                legend.append("stop")
+                    .attr("offset", "0%")
+                    .attr("stop-color", "#d73027")
+                    .attr("stop-opacity", 1);
+                legend.append("stop")
+                    .attr("offset", "20%")
+                    .attr("stop-color", "#fc8d59")
+                    .attr("stop-opacity", 1);
+
+                legend.append("stop")
+                    .attr("offset", "40%")
+                    .attr("stop-color", "#fee08b")
+                    .attr("stop-opacity", 1);
+
+                legend.append("stop")
+                    .attr("offset", "60%")
+                    .attr("stop-color", "#d9ef8b")
+                    .attr("stop-opacity", 1);
+
+                legend.append("stop")
+                    .attr("offset", "80%")
+                    .attr("stop-color", "#91cf60")
+                    .attr("stop-opacity", 1);
+
+                legend.append("stop")
+                    .attr("offset", "100%")
+                    .attr("stop-color", "#1a9850")
+                    .attr("stop-opacity", 1);
+
+                legendSvg.append("rect")
+                    .attr("width", legendWidth)
+                    .attr("height", legendHeight)
+                    .style("fill", `url(#gradient-${plotId})`);
+
+                legendSvg.append("g")
+                    .attr("class", "axis")
+                    .attr("transform", `translate(${legendWidth}, 0)`)
+                    .call(legendAxis);
+            }
+
+            let initialCountry1 = countries[0];
+            let initialCountry2 = countries[1];
+            createHeatmap(initialCountry1, 'plot1');
+            createHeatmap(initialCountry2, 'plot2');
+
+            countrySelect1.on("change", function () {
+                let selectedCountry1 = d3.select(this).property("value");
+                createHeatmap(selectedCountry1, 'plot1');
+            });
+
+            countrySelect2.on("change", function () {
+                let selectedCountry2 = d3.select(this).property("value");
+                createHeatmap(selectedCountry2, 'plot2');
+            });
+
+            function wrapText(text, width) {
+                text.each(function () {
+                    let text = d3.select(this),
+                        words = text.text().split(/\s+/).reverse(),
+                        word,
+                        line = [],
+                        lineNumber = 0,
+                        lineHeight = 1.1,
+                        y = text.attr("y"),
+                        dy = parseFloat(text.attr("dy")),
+                        tspan = text.text(null).append("tspan").attr("x", 0).attr("y", y).attr("dy", dy + "em");
+
+                    while ((word = words.pop())) {
+                        line.push(word);
+                        tspan.text(line.join(" "));
+                        if (tspan.node().getComputedTextLength() > width) {
+                            line.pop();
+                            tspan.text(line.join(" "));
+                            line = [word];
+                            tspan = text.append("tspan").attr("x", 0).attr("y", y).attr("dy", ++lineNumber * lineHeight + dy + "em").text(word);
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+
+</html>
